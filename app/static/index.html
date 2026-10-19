@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d10">
+  <title>FlowCodex · 端到端研发流</title>
+  <link rel="stylesheet" href="/static/app.css?v=0.1.5">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#/" aria-label="FlowCodex 首页">
+        <span class="brand-mark">F</span>
+        <span>
+          <strong>FlowCodex</strong>
+          <small>端到端研发流</small>
+        </span>
+      </a>
+
+      <nav class="nav">
+        <a class="nav-item" href="#/" data-nav="dashboard">
+          <span class="nav-icon">◫</span> 工作台
+        </a>
+        <a class="nav-item" href="#/knowledge" data-nav="knowledge">
+          <span class="nav-icon">◇</span> 知识库
+        </a>
+      </nav>
+
+      <div class="sidebar-section">
+        <div class="sidebar-label">
+          <span>项目</span>
+          <button class="icon-button" data-action="new-project" title="新建项目">+</button>
+        </div>
+        <div id="project-list" class="project-list"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="provider-badge" id="provider-badge">连接中…</div>
+        <button class="text-button" data-action="show-token">访问令牌</button>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="mobile-menu" data-action="toggle-sidebar" aria-label="菜单">☰</button>
+          <div id="breadcrumb" class="breadcrumb">工作台</div>
+        </div>
+        <div class="topbar-right">
+          <span class="health-dot" id="health-dot"></span>
+          <span class="muted small" id="app-env">—</span>
+          <button class="icon-button" data-action="refresh" title="刷新">↻</button>
+        </div>
+      </header>
+
+      <main id="view" class="view" aria-live="polite">
+        <div class="empty-state"><div class="spinner"></div><p>正在加载 FlowCodex…</p></div>
+      </main>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-root"></div>
+  <script src="/static/app.js?v=0.1.5"></script>
+</body>
+</html>

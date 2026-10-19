@@ -1,0 +1,38 @@
+services:
+  flowcodex:
+    build: .
+    container_name: flowcodex
+    env_file: .env
+    volumes:
+      - ${DATA_HOST_DIR:-./data}:/data
+      - ${REPOS_HOST_DIR:-./repos}:/repos
+      - ${OBSIDIAN_HOST_DIR:-./vault}:/vault
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: flowcodex-caddy
+    env_file: .env
+    depends_on:
+      flowcodex:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

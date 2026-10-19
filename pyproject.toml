@@ -1,0 +1,15 @@
+[project]
+name = "flowcodex"
+version = "0.1.0"
+description = "Self-hosted end-to-end workflow agent for requirements, plans, code, review, verification and delivery."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "httpx>=0.28,<1",
+  "pydantic>=2.10,<3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,16 @@
+.git
+.venv
+.env
+data
+data-l10n
+vault-l10n
+repos
+vault
+backups
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.DS_Store
+Thumbs.db
+docs/flowcodex-run.png

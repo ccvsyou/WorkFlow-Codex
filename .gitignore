@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Runtime
+.env
+data/*
+data-l10n/
+vault-l10n/
+!data/.gitkeep
+repos/*
+!repos/.gitkeep
+vault/*
+!vault/.gitkeep
+artifacts/
+*.db
+*.db-shm
+*.db-wal
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
