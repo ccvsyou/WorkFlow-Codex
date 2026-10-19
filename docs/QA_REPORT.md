@@ -3,7 +3,7 @@
 - Date: 2026-10-19
 - Scope: backend API, workflow state machine, frontend flows, deployment configuration, security boundaries
 - Environment: Windows, Python 3.14, Mock LLM, local git repositories
-- Automated tests: `pytest` — 17 passed
+- Automated tests: `pytest` — 18 passed
 - Static checks: `compileall`, `node --check`, `bash -n`, Compose YAML parse
 - Visual QA: desktop + mobile, empty state, token auth, validation errors
 - Health score: **9/10** (ship-ready with environment-specific caveats)
@@ -85,6 +85,10 @@
 
 16. **Deployment script did not ensure Compose plugin/daemon.**
     - Fix: check `docker compose`, install the plugin if missing, enable Docker.
+
+17. **Auto polling re-rendered the clarification form and cleared typing.**
+    - Fix: remove 2.4-second polling; add a manual “刷新状态” action.
+    - Regression test: `tests/test_frontend_behavior.py`.
 
 ## Residual Risks / Not Tested
 
