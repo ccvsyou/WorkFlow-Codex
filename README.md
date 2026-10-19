@@ -141,3 +141,4 @@ sudo bash deploy/install-tencent.sh
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 架构、状态机、数据模型、失败处理
 - [docs/SOURCE_NOTES.md](docs/SOURCE_NOTES.md) — 原文要点与本实现的映射
 - [deploy/tencent-lighthouse.md](deploy/tencent-lighthouse.md) — 轻量服务器部署手册
+- [docs/COMMERCIAL_READINESS.md](docs/COMMERCIAL_READINESS.md) — 商业化就绪评估、阻断项与 30/60/90 天路线图
