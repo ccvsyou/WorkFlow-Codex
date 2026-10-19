@@ -8,7 +8,6 @@ const state = {
   requirements: [],
   activeRun: null,
   runTab: 'overview',
-  pollTimer: null,
   modalOpen: false,
 };
 
@@ -113,7 +112,6 @@ async function api(path, options = {}) {
 }
 
 function setBreadcrumb(text) { const el = $('#breadcrumb'); if (el) el.textContent = text; }
-function clearPoll() { if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; } }
 function toast(message, type = 'info') {
   const root = $('#toast-root');
   if (!root) return;
@@ -262,7 +260,6 @@ function renderKnowledgeCard(item) {
 }
 
 async function loadRun(runId, silent = false) {
-  clearPoll();
   if (!silent) loadingView('正在加载运行…');
   try {
     const data = await api(`/runs/${runId}`);
@@ -274,9 +271,6 @@ async function loadRun(runId, silent = false) {
     state.activeProject = data.project;
     if (previousRunId !== runId || !state.runTab) state.runTab = 'overview';
     renderRunView();
-    if (!data.is_terminal && location.hash === `#/run/${runId}`) {
-      state.pollTimer = setTimeout(() => loadRun(runId, true), 2400);
-    }
   } catch (error) {
     if (error.message !== '需要访问令牌') errorView(error);
   }
@@ -336,7 +330,7 @@ function renderRunActionBanner(data) {
     return `<div class="notice success" style="margin-bottom:16px"><div style="flex:1"><strong>交付完成。</strong><div>补丁、审查、验证与知识蒸馏均已结束。${deliver.commit ? ` 已提交：<span class="mono">${esc(deliver.commit.slice(0, 10))}</span>` : ' 分支保留在隔离工作区，可人工提交。'}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" data-action="download-patch" data-id="${run.id}">下载补丁</button>${deliver.commit ? '' : `<button class="btn btn-sm btn-green" data-action="promote" data-id="${run.id}">提交隔离分支</button>`}<button class="btn btn-sm" data-action="export-obsidian" data-id="${run.id}">导出到 Obsidian</button></div></div>`;
   }
   if (['queued', 'running'].includes(run.status)) {
-    return `<div class="notice" style="margin-bottom:16px"><div class="spinner" style="width:18px;height:18px;flex:0 0 auto"></div><div style="flex:1"><strong>${run.status === 'queued' ? '等待后台执行器接管…' : `正在执行：${esc(STAGE_LABEL[run.stage] || run.stage)}`}</strong><div>页面会自动刷新运行状态。</div></div><button class="btn btn-sm" data-action="cancel-run" data-id="${run.id}">取消</button></div>`;
+    return `<div class="notice" style="margin-bottom:16px"><div class="spinner" style="width:18px;height:18px;flex:0 0 auto"></div><div style="flex:1"><strong>${run.status === 'queued' ? '等待后台执行器接管…' : `正在执行：${esc(STAGE_LABEL[run.stage] || run.stage)}`}</strong><div>运行状态不会自动刷新。完成当前阶段后，点击“刷新状态”查看结果。</div></div><button class="btn btn-sm" data-action="refresh">刷新状态</button><button class="btn btn-sm" data-action="cancel-run" data-id="${run.id}">取消</button></div>`;
   }
   if (run.status === 'blocked') {
     return `<div class="notice danger" style="margin-bottom:16px"><strong>运行已拦截：</strong> ${esc(run.error || '请查看事件日志')}</div>`;
@@ -570,7 +564,6 @@ async function feedbackKnowledge(id) {
 }
 
 async function route() {
-  clearPoll();
   state.activeProject = null;
   state.activeRun = null;
   const hash = location.hash.replace(/^#\/?/, '');

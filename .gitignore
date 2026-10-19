@@ -26,3 +26,7 @@ artifacts/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local release artifact
+flowcodex-main.zip
+
