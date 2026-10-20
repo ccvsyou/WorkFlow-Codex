@@ -181,6 +181,32 @@ sudo bash deploy/install-tencent.sh
 
 `install-tencent.sh` 使用 `rsync --delete` 同步代码，但会排除 `data/`、`repos/`、`vault/`、`.env`，不会删除持久化数据。
 
+### 10.1 离线升级（服务器无法访问 GitHub）
+
+如果服务器上 `git pull` 出现 `GnuTLS recv error`、`Connection reset by peer` 或 DNS 解析失败，用本机打包后上传：
+
+```powershell
+git archive --format=zip -o flowcodex-0.2.0.zip HEAD
+scp .\flowcodex-0.2.0.zip root@<服务器IP>:/tmp/
+```
+
+```bash
+apt-get install -y unzip
+rm -rf /opt/flowcodex-src-0.2.0
+mkdir -p /opt/flowcodex-src-0.2.0
+unzip -q /tmp/flowcodex-0.2.0.zip -d /opt/flowcodex-src-0.2.0
+cd /opt/flowcodex-src-0.2.0
+sudo bash deploy/install-tencent.sh
+```
+
+`install-tencent.sh` 会同步到 `/opt/flowcodex`，并保留 `.env`、`data/`、`repos/`、`vault/`。升级后验证版本：
+
+```bash
+curl -s http://127.0.0.1/api/health
+# 期望输出包含 "version":"0.2.0"
+cd /opt/flowcodex && sudo docker compose ps
+```
+
 ## 11. 常见问题
 
 ### 页面 502

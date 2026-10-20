@@ -28,5 +28,5 @@ artifacts/
 Thumbs.db
 
 # Local release artifact
-flowcodex-main.zip
+flowcodex-*.zip
 
