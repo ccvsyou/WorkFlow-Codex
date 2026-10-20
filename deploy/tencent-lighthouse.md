@@ -186,16 +186,16 @@ sudo bash deploy/install-tencent.sh
 如果服务器上 `git pull` 出现 `GnuTLS recv error`、`Connection reset by peer` 或 DNS 解析失败，用本机打包后上传：
 
 ```powershell
-git archive --format=zip -o flowcodex-0.2.0.zip HEAD
-scp .\flowcodex-0.2.0.zip root@<服务器IP>:/tmp/
+git archive --format=zip -o flowcodex-0.2.1.zip HEAD
+scp .\flowcodex-0.2.1.zip root@<服务器IP>:/tmp/
 ```
 
 ```bash
 apt-get install -y unzip
-rm -rf /opt/flowcodex-src-0.2.0
-mkdir -p /opt/flowcodex-src-0.2.0
-unzip -q /tmp/flowcodex-0.2.0.zip -d /opt/flowcodex-src-0.2.0
-cd /opt/flowcodex-src-0.2.0
+rm -rf /opt/flowcodex-src-0.2.1
+mkdir -p /opt/flowcodex-src-0.2.1
+unzip -q /tmp/flowcodex-0.2.1.zip -d /opt/flowcodex-src-0.2.1
+cd /opt/flowcodex-src-0.2.1
 sudo bash deploy/install-tencent.sh
 ```
 
@@ -203,7 +203,7 @@ sudo bash deploy/install-tencent.sh
 
 ```bash
 curl -s http://127.0.0.1/api/health
-# 期望输出包含 "version":"0.2.0"
+# 期望输出包含 "version":"0.2.1"
 cd /opt/flowcodex && sudo docker compose ps
 ```
 

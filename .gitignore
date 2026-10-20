@@ -22,6 +22,7 @@ artifacts/
 *.db-wal
 
 # Editor / OS
+.playwright-cli/
 .vscode/
 .idea/
 .DS_Store

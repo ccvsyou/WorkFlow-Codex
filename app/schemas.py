@@ -99,6 +99,11 @@ class KnowledgeFeedback(BaseModel):
     _strip_non_blank = field_validator("reason")(_non_blank)
 
 
+class KnowledgeReview(BaseModel):
+    decision: Literal["approve", "reject"]
+    note: str = Field(default="", max_length=2000)
+
+
 class ClarifyQuestion(BaseModel):
     id: str
     question: str

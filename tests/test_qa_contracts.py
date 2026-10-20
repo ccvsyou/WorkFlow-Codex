@@ -8,13 +8,26 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app import db
 from app.config import Settings
 from app.llm import LLMResult
 from app.main import create_app
-from app.schemas import ClarifyQuestion, ClarifyResult, FeasibilityResult, PlanResult, PlanStep, ReviewIssue, ReviewResult
+from app.schemas import (
+    ClarifyQuestion,
+    ClarifyResult,
+    FeasibilityResult,
+    PlanResult,
+    PlanStep,
+    ReviewIssue,
+    ReviewResult,
+)
 from app.services import gitops
-from app.services.engine import clarification_ready, normalize_review, validate_plan, weighted_feasibility_total
-
+from app.services.engine import (
+    clarification_ready,
+    normalize_review,
+    validate_plan,
+    weighted_feasibility_total,
+)
 
 AUTH = {"Authorization": "Bearer test-token"}
 
@@ -23,7 +36,13 @@ def run_git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
 
 
-def make_settings(tmp_path: Path, repo_root: Path, worker_enabled: bool = True) -> Settings:
+def make_settings(
+    tmp_path: Path,
+    repo_root: Path,
+    worker_enabled: bool = True,
+    input_price: float = 0.0,
+    output_price: float = 0.0,
+) -> Settings:
     settings = Settings(
         app_name="FlowCodex QA",
         env="test",
@@ -32,6 +51,8 @@ def make_settings(tmp_path: Path, repo_root: Path, worker_enabled: bool = True) 
         repos_root=repo_root,
         llm_provider="mock",
         llm_api_key="",
+        llm_input_price_per_mtok=input_price,
+        llm_output_price_per_mtok=output_price,
         worker_enabled=worker_enabled,
         worker_poll_interval=0.05,
         auto_apply_patch=True,
@@ -423,3 +444,109 @@ def test_queued_run_can_be_cancelled_without_worker(tmp_path: Path, repo_root: P
         assert cancelled.status_code == 200, cancelled.text
         assert cancelled.json()["run"]["status"] == "cancelled"
         assert cancelled.json()["requirement"]["status"] == "cancelled"
+
+
+def test_project_settings_can_be_updated(client: TestClient, repo_root: Path):
+    project = create_project(client, repo_root)
+    response = client.patch(
+        f"/api/projects/{project['id']}",
+        headers=AUTH,
+        json={
+            "name": "Renamed Project",
+            "default_branch": "develop",
+            "verify_command": "pytest -q",
+            "publish_command": "./scripts/deploy.sh",
+            "allowed_paths": ["src", "tests"],
+            "auto_apply": False,
+            "auto_publish": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert updated["name"] == "Renamed Project"
+    assert updated["default_branch"] == "develop"
+    assert updated["verify_command"] == "pytest -q"
+    assert updated["publish_command"] == "./scripts/deploy.sh"
+    assert updated["allowed_paths"] == ["src", "tests"]
+    assert updated["auto_apply"] is False
+    assert updated["auto_publish"] is True
+
+
+def test_usage_and_cost_are_reported(tmp_path: Path, repo_root: Path):
+    settings = make_settings(tmp_path, repo_root, input_price=2.0, output_price=8.0)
+    app = create_app(settings=settings, start_worker=False)
+    with TestClient(app) as costing_client:
+        project = create_project(costing_client, repo_root)
+        created = costing_client.post(
+            "/api/requirements",
+            headers=AUTH,
+            json={
+                "project_id": project["id"],
+                "title": "成本统计",
+                "raw_input": "验证 token 与成本统计。",
+                "start_run": True,
+            },
+        )
+        assert created.status_code == 201, created.text
+        run_id = created.json()["run"]["run"]["id"]
+        db.execute(
+            "UPDATE runs SET tokens_in = ?, tokens_out = ? WHERE id = ?",
+            (1_000_000, 500_000, run_id),
+        )
+
+        run = costing_client.get(f"/api/runs/{run_id}", headers=AUTH).json()["run"]
+        assert run["usage"]["tokens_in"] == 1_000_000
+        assert run["usage"]["tokens_out"] == 500_000
+        assert run["usage"]["total_tokens"] == 1_500_000
+        assert run["usage"]["estimated_cost"] == 6.0
+        assert run["usage"]["priced"] is True
+
+        dashboard = costing_client.get("/api/dashboard", headers=AUTH).json()
+        assert dashboard["usage"]["total_tokens"] == 1_500_000
+        assert dashboard["usage"]["estimated_cost"] == 6.0
+        assert dashboard["recent_runs"][0]["usage"]["estimated_cost"] == 6.0
+
+
+def test_knowledge_review_approves_and_rejects(client: TestClient, repo_root: Path):
+    project = create_project(client, repo_root)
+
+    def create_pending(title: str) -> dict:
+        response = client.post(
+            "/api/knowledge",
+            headers=AUTH,
+            json={
+                "project_id": project["id"],
+                "kind": "lesson",
+                "title": title,
+                "content": "待人工审核的知识候选。",
+                "tags": ["review"],
+                "confidence": 0.5,
+                "ttl_days": 30,
+                "status": "pending_review",
+            },
+        )
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    approved_item = create_pending("批准测试")
+    approved = client.post(
+        f"/api/knowledge/{approved_item['id']}/review",
+        headers=AUTH,
+        json={"decision": "approve", "note": "内容准确"},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "accepted"
+    assert approved.json()["confidence"] >= 0.75
+
+    rejected_item = create_pending("驳回测试")
+    rejected = client.post(
+        f"/api/knowledge/{rejected_item['id']}/review",
+        headers=AUTH,
+        json={"decision": "reject", "note": "与当前架构不一致"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["status"] == "rejected"
+
+    rejected_list = client.get("/api/knowledge?status=rejected", headers=AUTH)
+    assert rejected_list.status_code == 200
+    assert [item["id"] for item in rejected_list.json()] == [rejected_item["id"]]

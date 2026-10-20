@@ -18,6 +18,7 @@ from .schemas import (
     FeasibilityOverride,
     KnowledgeCreate,
     KnowledgeFeedback,
+    KnowledgeReview,
     PlanApproval,
     ProjectCreate,
     ProjectUpdate,
@@ -73,8 +74,31 @@ def _resolve_repo_input(settings: Settings, raw: str) -> Path:
     return gitops.safe_repo_path(settings, str(path))
 
 
-def _full_run_payload(run_id: str) -> dict[str, Any]:
-    run = _run_or_404(run_id)
+def _estimate_cost(tokens_in: int, tokens_out: int, settings: Settings) -> float | None:
+    rate_in = max(0.0, settings.llm_input_price_per_mtok)
+    rate_out = max(0.0, settings.llm_output_price_per_mtok)
+    if not rate_in and not rate_out:
+        return None
+    return round(tokens_in / 1_000_000 * rate_in + tokens_out / 1_000_000 * rate_out, 6)
+
+
+def _attach_usage(run: dict[str, Any], settings: Settings) -> dict[str, Any]:
+    tokens_in = int(run.get("tokens_in") or 0)
+    tokens_out = int(run.get("tokens_out") or 0)
+    cost = _estimate_cost(tokens_in, tokens_out, settings)
+    run["usage"] = {
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "total_tokens": tokens_in + tokens_out,
+        "estimated_cost": cost,
+        "currency": settings.cost_currency,
+        "priced": cost is not None,
+    }
+    return run
+
+
+def _full_run_payload(run_id: str, settings: Settings) -> dict[str, Any]:
+    run = _attach_usage(_run_or_404(run_id), settings)
     requirement = _requirement_or_404(run["requirement_id"])
     project = project_out(_project_or_404(run["project_id"]))
     events = [event_out(row) for row in db.query_all("SELECT * FROM run_events WHERE run_id = ? ORDER BY id", (run_id,))]
@@ -112,7 +136,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         finally:
             await worker.stop()
 
-    app = FastAPI(title=app_settings.app_name, version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title=app_settings.app_name, version="0.2.1", lifespan=lifespan)
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -127,7 +151,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
 
     @app.get("/api/health", include_in_schema=False)
     def health() -> dict[str, Any]:
-        return {"ok": True, "app": app_settings.app_name, "version": "0.2.0"}
+        return {"ok": True, "app": app_settings.app_name, "version": "0.2.1"}
 
     @app.get("/api/config", include_in_schema=False)
     def config() -> dict[str, Any]:
@@ -141,8 +165,10 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             "worker_enabled": app_settings.worker_enabled,
             "obsidian_enabled": bool(app_settings.obsidian_vault_path),
             "auth_required": bool(app_settings.api_token),
+            "cost_currency": app_settings.cost_currency,
+            "cost_pricing_configured": bool(app_settings.llm_input_price_per_mtok or app_settings.llm_output_price_per_mtok),
             "stages": [{"id": stage, "label": STAGE_LABELS.get(stage, stage)} for stage in STAGES],
-            "version": "0.2.0",
+            "version": "0.2.1",
         }
 
     # ---------- projects ----------
@@ -255,7 +281,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
                 "INSERT INTO run_events (run_id, type, stage, message, payload_json, created_at) VALUES (?, 'created', 'intake', '示例需求已提交，等待 Worker', '{}', ?)",
                 (run_id, now),
             )
-            result["run"] = _full_run_payload(run_id)
+            result["run"] = _full_run_payload(run_id, app_settings)
         return result
 
     @app.get("/api/projects/{project_id}", dependencies=auth)
@@ -267,7 +293,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         project = _project_or_404(project_id)
         fields: dict[str, Any] = {}
         data = payload.model_dump(exclude_unset=True)
-        if "repo_path" in data and data["repo_path"]:
+        if data.get("repo_path"):
             try:
                 fields["repo_path"] = str(_resolve_repo_input(app_settings, data["repo_path"]))
             except Exception as exc:
@@ -335,7 +361,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
                 ),
             )
             db.execute("INSERT INTO run_events (run_id, type, stage, message, payload_json, created_at) VALUES (?, 'created', 'intake', '需求已提交，等待 Worker', '{}', ?)", (run_id, now))
-            result["run"] = _full_run_payload(run_id)
+            result["run"] = _full_run_payload(run_id, app_settings)
         return result
 
     @app.get("/api/requirements/{requirement_id}", dependencies=auth)
@@ -363,11 +389,11 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             f"SELECT r.*, req.title AS requirement_title FROM runs r JOIN requirements req ON req.id = r.requirement_id{where.replace('project_id', 'r.project_id').replace('status', 'r.status')} ORDER BY r.created_at DESC LIMIT ?",
             (*params, limit),
         )
-        return [run_out(row) for row in rows]
+        return [_attach_usage(run_out(row), app_settings) for row in rows]
 
     @app.get("/api/runs/{run_id}", dependencies=auth)
     def get_run(run_id: str) -> dict[str, Any]:
-        return _full_run_payload(run_id)
+        return _full_run_payload(run_id, app_settings)
 
     @app.get("/api/runs/{run_id}/events", dependencies=auth)
     def get_run_events(run_id: str, after: int = 0) -> list[dict[str, Any]]:
@@ -391,7 +417,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             (dumps(clean), now_iso(), run_id),
         )
         db.execute("INSERT INTO run_events (run_id, type, stage, message, payload_json, created_at) VALUES (?, 'human', 'clarify', '已提交需求补充回答', ?, ?)", (run_id, dumps(clean), now_iso()))
-        return _full_run_payload(run_id)
+        return _full_run_payload(run_id, app_settings)
 
     @app.post("/api/runs/{run_id}/approve-plan", dependencies=auth)
     def approve_plan(run_id: str, payload: PlanApproval) -> dict[str, Any]:
@@ -416,7 +442,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             message = payload.comment or "方案被人工拒绝"
             event_type = "blocked"
         db.execute("INSERT INTO run_events (run_id, type, stage, message, payload_json, created_at) VALUES (?, ?, 'plan', ?, ?, ?)", (run_id, event_type, message, dumps(payload.model_dump()), now))
-        return _full_run_payload(run_id)
+        return _full_run_payload(run_id, app_settings)
 
     @app.post("/api/runs/{run_id}/override-feasibility", dependencies=auth)
     def override_feasibility(run_id: str, payload: FeasibilityOverride) -> dict[str, Any]:
@@ -430,7 +456,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         )
         db.execute("UPDATE requirements SET status = 'in_progress', updated_at = ? WHERE id = ?", (now, run["requirement_id"]))
         db.execute("INSERT INTO run_events (run_id, type, stage, message, payload_json, created_at) VALUES (?, 'human', 'feasibility', ?, ?, ?)", (run_id, "人工强制放行可行性门禁", dumps({"reason": payload.reason}), now))
-        return _full_run_payload(run_id)
+        return _full_run_payload(run_id, app_settings)
 
     @app.post("/api/runs/{run_id}/rework", dependencies=auth)
     def rework(run_id: str, payload: ReworkRequest) -> dict[str, Any]:
@@ -446,7 +472,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         )
         db.execute("UPDATE requirements SET status = 'in_progress', updated_at = ? WHERE id = ?", (now, run["requirement_id"]))
         db.execute("INSERT INTO run_events (run_id, type, stage, message, payload_json, created_at) VALUES (?, 'human', ?, ?, ?, ?)", (run_id, next_stage, next_message, dumps({"note": payload.note}), now))
-        return _full_run_payload(run_id)
+        return _full_run_payload(run_id, app_settings)
 
     @app.post("/api/runs/{run_id}/promote", dependencies=auth)
     def promote(run_id: str) -> dict[str, Any]:
@@ -455,7 +481,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             raise HTTPException(status_code=409, detail="只有已完成运行可以提交分支")
         deliver = run.get("deliver") or {}
         if deliver.get("commit"):
-            return _full_run_payload(run_id)
+            return _full_run_payload(run_id, app_settings)
         worktree_raw = run.get("worktree_path", "")
         if not worktree_raw:
             raise HTTPException(status_code=409, detail="没有可提交的隔离工作区")
@@ -471,7 +497,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         deliver["commit_result"] = commit.as_dict()
         db.update("runs", run_id, deliver_json=dumps(deliver))
         db.execute("INSERT INTO run_events (run_id, type, stage, message, payload_json, created_at) VALUES (?, 'human', 'deliver', '已提交隔离分支', ?, ?)", (run_id, dumps({"commit": deliver["commit"]}), now_iso()))
-        return _full_run_payload(run_id)
+        return _full_run_payload(run_id, app_settings)
 
     @app.post("/api/runs/{run_id}/export/obsidian", dependencies=auth)
     def export_obsidian(run_id: str) -> dict[str, Any]:
@@ -479,7 +505,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         requirement = _requirement_or_404(run["requirement_id"])
         project = project_out(_project_or_404(run["project_id"]))
         related = [item for item in knowledge.list_knowledge(project_id=run["project_id"], include_expired=True, limit=100) if item.get("source_run_id") == run_id]
-        payload = _full_run_payload(run_id)
+        payload = _full_run_payload(run_id, app_settings)
         export_run = dict(payload["run"])
         export_run["events"] = payload["events"]
         try:
@@ -497,12 +523,12 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
     def cancel_run(run_id: str) -> dict[str, Any]:
         run = _run_or_404(run_id)
         if run["status"] in TERMINAL:
-            return _full_run_payload(run_id)
+            return _full_run_payload(run_id, app_settings)
         now = now_iso()
         db.execute("UPDATE runs SET status = 'cancelled', error = '人工取消', updated_at = ?, finished_at = ? WHERE id = ?", (now, now, run_id))
         db.execute("UPDATE requirements SET status = 'cancelled', updated_at = ? WHERE id = ?", (now, run["requirement_id"]))
         db.execute("INSERT INTO run_events (run_id, type, stage, message, payload_json, created_at) VALUES (?, 'human', ?, '运行已取消', '{}', ?)", (run_id, run["stage"], now))
-        return _full_run_payload(run_id)
+        return _full_run_payload(run_id, app_settings)
 
     @app.get("/api/runs/{run_id}/artifact", dependencies=auth, response_class=PlainTextResponse)
     def get_artifact(run_id: str) -> str:
@@ -542,6 +568,13 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             raise HTTPException(status_code=404, detail="知识不存在")
         return item
 
+    @app.post("/api/knowledge/{knowledge_id}/review", dependencies=auth)
+    def review_knowledge(knowledge_id: str, payload: KnowledgeReview) -> dict[str, Any]:
+        item = knowledge.review(knowledge_id, payload.decision, payload.note)
+        if not item:
+            raise HTTPException(status_code=404, detail="知识不存在")
+        return item
+
     @app.post("/api/knowledge/expire", dependencies=auth)
     def expire_knowledge() -> dict[str, Any]:
         return {"expired": knowledge.expire_stale()}
@@ -557,6 +590,12 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         )
         knowledge_count = db.query_one("SELECT COUNT(*) AS count FROM knowledge WHERE status = 'accepted'")
         pending_knowledge = db.query_one("SELECT COUNT(*) AS count FROM knowledge WHERE status = 'pending_review'")
+        usage_row = db.query_one(
+            "SELECT COALESCE(SUM(tokens_in), 0) AS tokens_in, COALESCE(SUM(tokens_out), 0) AS tokens_out FROM runs"
+        )
+        usage_in = int(usage_row["tokens_in"] or 0) if usage_row else 0
+        usage_out = int(usage_row["tokens_out"] or 0) if usage_row else 0
+        usage_cost = _estimate_cost(usage_in, usage_out, app_settings)
         return {
             "counts": {
                 "active": counts.get("queued", 0) + counts.get("running", 0) + counts.get("awaiting_input", 0) + counts.get("awaiting_plan_approval", 0),
@@ -570,7 +609,15 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
                 "accepted": knowledge_count["count"] if knowledge_count else 0,
                 "pending_review": pending_knowledge["count"] if pending_knowledge else 0,
             },
-            "recent_runs": [run_out(row) for row in recent],
+            "usage": {
+                "tokens_in": usage_in,
+                "tokens_out": usage_out,
+                "total_tokens": usage_in + usage_out,
+                "estimated_cost": usage_cost,
+                "currency": app_settings.cost_currency,
+                "priced": usage_cost is not None,
+            },
+            "recent_runs": [_attach_usage(run_out(row), app_settings) for row in recent],
         }
 
     return app

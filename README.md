@@ -29,6 +29,9 @@ FlowCodex 是一个自托管的工作流 Agent 系统：从需求访谈、可行
 10. **Obsidian 导出**：把运行摘要、Spec、方案、审查和验证结果写入 Markdown 笔记。
 11. **Mock 模式**：没有 API Key 也能跑通全流水线，便于本地验证和演示。
 12. **全中文管理端**：工作台、项目页、运行详情、知识库、弹窗、状态与错误提示均为中文。
+13. **项目设置**：在线修改验证命令、发布命令、允许路径、自动提交与自动发布策略。
+14. **成本可见**：按部署者配置的 token 单价估算单次与累计成本；未配置单价时只统计 token。
+15. **知识审核**：待复核知识可批准入库或驳回，审核记录单独留存。
 
 ## 技术栈
 
@@ -109,6 +112,9 @@ LLM_MODEL=deepseek-chat
 | `LLM_BASE_URL` | `https://api.deepseek.com` | OpenAI-compatible 根地址 |
 | `LLM_API_KEY` | 空 | 模型密钥 |
 | `LLM_MODEL` | `deepseek-chat` | 模型名 |
+| `LLM_INPUT_PRICE_PER_MTOK` | `0` | 输入 token 单价（人民币/百万 token），0 表示不估算成本 |
+| `LLM_OUTPUT_PRICE_PER_MTOK` | `0` | 输出 token 单价（人民币/百万 token），0 表示不估算成本 |
+| `COST_CURRENCY` | `CNY` | 成本展示币种 |
 | `FEASIBILITY_THRESHOLD` | `60` | 可行性门禁 |
 | `AUTO_APPLY_PATCH` | `false` | 全局默认；每个项目还有自己的 `auto_apply` |
 | `VERIFY_TIMEOUT` | `300` | 验证命令超时秒数 |

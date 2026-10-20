@@ -49,7 +49,7 @@ const KNOWLEDGE_KIND_LABEL = {
   prd_template: '需求模板',
   architecture: '架构知识',
 };
-const KNOWLEDGE_STATUS_LABEL = { accepted: '已收录', pending_review: '待复核' };
+const KNOWLEDGE_STATUS_LABEL = { accepted: '已收录', pending_review: '待复核', rejected: '已驳回' };
 
 function providerLabel(value) {
   return PROVIDER_LABEL[String(value || '').toLowerCase()] || String(value || '—');
@@ -70,7 +70,7 @@ function knowledgeKindLabel(value) {
   return KNOWLEDGE_KIND_LABEL[value] || value || '知识';
 }
 function knowledgeStatusChip(value) {
-  const statusClass = value === 'accepted' ? 'completed' : 'awaiting_plan_approval';
+  const statusClass = value === 'accepted' ? 'completed' : value === 'rejected' ? 'blocked' : 'awaiting_plan_approval';
   return `<span class="status-chip status-${statusClass}">${esc(KNOWLEDGE_STATUS_LABEL[value] || value || '—')}</span>`;
 }
 
@@ -85,6 +85,13 @@ const fmtDate = (value) => {
   return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
 const statusChip = (status) => `<span class="status-chip status-${esc(status)}">${esc(STATUS_LABEL[status] || status)}</span>`;
+const fmtInt = (value) => Number(value || 0).toLocaleString('zh-CN');
+const fmtCost = (usage) => {
+  if (!usage || !usage.priced || usage.estimated_cost === null || usage.estimated_cost === undefined) return '未配置单价';
+  const amount = Number(usage.estimated_cost || 0);
+  const symbol = usage.currency === 'CNY' ? '¥' : usage.currency === 'USD' ? '$' : `${usage.currency || ''} `;
+  return `${symbol}${amount.toFixed(4)}`;
+};
 const stageChip = (stage) => `<span class="stage-chip">${esc(STAGE_LABEL[stage] || stage)}</span>`;
 
 async function api(path, options = {}) {
@@ -175,6 +182,7 @@ function renderDashboard() {
   renderSidebar('dashboard');
   const counts = state.dashboard?.counts || {};
   const knowledge = state.dashboard?.knowledge || {};
+  const usage = state.dashboard?.usage || {};
   const recent = state.dashboard?.recent_runs || [];
   const hasProjects = state.projects.length > 0;
   $('#view').innerHTML = `
@@ -190,6 +198,7 @@ function renderDashboard() {
       <section class="card"><div class="card-head"><h2>项目</h2><span class="muted small">${state.projects.length} 个</span></div><div class="card-body">${hasProjects ? `<div class="grid grid-2">${state.projects.map(renderProjectCard).join('')}</div>` : onboardingCard()}</div></section>
     </div><aside class="grid">
       <section class="card"><div class="card-head"><h2>提交新需求</h2><span class="tiny muted">一句话也可以</span></div><div class="card-body">${hasProjects ? requirementForm(state.projects, state.projects[0].id) : `<div class="notice warn">请先创建项目并挂载一个 Git 仓库。</div>`}</div></section>
+      <section class="card"><div class="card-head"><h2>用量与成本</h2><span class="muted small">累计</span></div><div class="card-body"><dl class="kv"><dt>输入 token</dt><dd>${fmtInt(usage.tokens_in)}</dd><dt>输出 token</dt><dd>${fmtInt(usage.tokens_out)}</dd><dt>预估成本</dt><dd>${fmtCost(usage)}</dd></dl><p class="muted tiny" style="margin-top:10px">单价在部署环境的 .env 中配置；未配置时只统计 token。</p></div></section>
       <section class="card card-subtle"><div class="card-body"><h3 style="margin-bottom:8px">这条流水线的硬规则</h3><div class="list-stack"><div class="list-item"><div class="item-title">先澄清，再执行</div><div class="item-body">目标用户、业务规则、验收标准不清楚时，流程停住，不带着错误理解往下跑。</div></div><div class="list-item"><div class="item-title">方案按依赖排序</div><div class="item-body">垂直切片、步骤可验证、单步控制在 5 个文件以内。</div></div><div class="list-item"><div class="item-title">隔离工作区</div><div class="item-body">补丁先应用到独立分支，审查和验证通过后才允许提交。</div></div></div></div></section>
     </aside></div>`;
 }
@@ -231,7 +240,7 @@ function renderProject() {
   const runsByRequirement = new Map(state.projectRuns.map((run) => [run.requirement_id, run]));
   $('#view').innerHTML = `
     <a class="back-link" href="#/">← 返回工作台</a>
-    <div class="page-head"><div><h1>${esc(project.name)}</h1><p class="subtitle mono">${esc(project.repo_path)}</p></div><div class="head-actions"><a class="btn" href="#/knowledge">知识库</a><button class="btn btn-primary" data-action="new-project">+ 新项目</button></div></div>
+    <div class="page-head"><div><h1>${esc(project.name)}</h1><p class="subtitle mono">${esc(project.repo_path)}</p></div><div class="head-actions"><a class="btn" href="#/knowledge">知识库</a><button class="btn" data-action="project-settings" data-id="${project.id}">项目设置</button><button class="btn btn-primary" data-action="new-project">+ 新项目</button></div></div>
     <div class="grid grid-3" style="margin-bottom:22px">
       <div class="card metric"><div class="metric-label">交付策略</div><div class="metric-value" style="font-size:20px">${project.auto_apply ? '自动提交' : '隔离待提交'}</div><div class="metric-foot">${project.auto_apply ? '验证通过后提交隔离分支' : '保留已暂存补丁，等待人工提交'}</div></div>
       <div class="card metric"><div class="metric-label">验证命令</div><div class="metric-value" style="font-size:16px;font-family:var(--mono)">${esc(project.verify_command || '未配置')}</div><div class="metric-foot">在隔离工作区内执行</div></div>
@@ -256,7 +265,12 @@ async function loadKnowledge() {
 }
 
 function renderKnowledgeCard(item) {
-  return `<article class="card card-pad"><div class="section-title"><div><div class="muted tiny" style="margin-bottom:4px">${esc(knowledgeKindLabel(item.kind))}</div><h3>${esc(item.title)}</h3></div>${knowledgeStatusChip(item.status)}</div><p class="muted small" style="white-space:pre-wrap">${esc(item.content)}</p><div class="chips">${(item.tags || []).map((tag) => `<span class="chip">${esc(tag)}</span>`).join('')}</div><div class="card-foot" style="padding:14px 0 0;margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:10px"><span class="muted tiny">置信度 ${Number(item.confidence || 0).toFixed(2)} · 到期 ${esc((item.expires_at || '').slice(0, 10))}</span><button class="btn btn-sm" data-action="feedback" data-id="${item.id}">反馈失真</button></div></article>`;
+  const actions = item.status === 'pending_review'
+    ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm btn-green" data-action="approve-knowledge" data-id="${item.id}">批准入库</button><button class="btn btn-sm btn-danger" data-action="reject-knowledge" data-id="${item.id}">驳回</button></div>`
+    : item.status === 'rejected'
+    ? `<button class="btn btn-sm" data-action="approve-knowledge" data-id="${item.id}">重新入库</button>`
+    : `<button class="btn btn-sm" data-action="feedback" data-id="${item.id}">反馈失真</button>`;
+  return `<article class="card card-pad"><div class="section-title"><div><div class="muted tiny" style="margin-bottom:4px">${esc(knowledgeKindLabel(item.kind))}</div><h3>${esc(item.title)}</h3></div>${knowledgeStatusChip(item.status)}</div><p class="muted small" style="white-space:pre-wrap">${esc(item.content)}</p><div class="chips">${(item.tags || []).map((tag) => `<span class="chip">${esc(tag)}</span>`).join('')}</div><div class="card-foot" style="padding:14px 0 0;margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:10px"><span class="muted tiny">置信度 ${Number(item.confidence || 0).toFixed(2)} · 到期 ${esc((item.expires_at || '').slice(0, 10))}</span>${actions}</div></article>`;
 }
 
 async function loadRun(runId, silent = false) {
@@ -383,7 +397,7 @@ function renderOverviewTab(data) {
     </div></div></section>
   </div><aside class="grid">
     <section class="card card-subtle"><div class="card-body"><h3 style="margin-bottom:10px">最近事件</h3>${renderTimeline(data.events.slice(-5))}</div></section>
-    <section class="card card-subtle"><div class="card-body"><h3 style="margin-bottom:8px">运行信息</h3><dl class="kv"><dt>模型服务</dt><dd>${esc(providerLabel(run.llm_provider))}</dd><dt>模型</dt><dd>${esc(modelLabel(run.llm_model))}</dd><dt>令牌用量</dt><dd>输入 ${run.tokens_in || 0} / 输出 ${run.tokens_out || 0}</dd><dt>创建</dt><dd>${esc(fmtDate(run.created_at))}</dd></dl></div></section>
+    <section class="card card-subtle"><div class="card-body"><h3 style="margin-bottom:8px">运行信息</h3><dl class="kv"><dt>模型服务</dt><dd>${esc(providerLabel(run.llm_provider))}</dd><dt>模型</dt><dd>${esc(modelLabel(run.llm_model))}</dd><dt>令牌用量</dt><dd>输入 ${fmtInt(run.tokens_in)} / 输出 ${fmtInt(run.tokens_out)}</dd><dt>预估成本</dt><dd>${fmtCost(run.usage)}</dd><dt>创建</dt><dd>${esc(fmtDate(run.created_at))}</dd></dl></div></section>
   </aside></div>`;
 }
 
@@ -474,7 +488,23 @@ function showProjectModal() {
     <div class="field"><label for="project-verify">验证命令</label><input id="project-verify" name="verify_command" placeholder="例如：pytest -q"><span class="hint">在隔离工作区内执行；留空则跳过验证。</span></div>
     <div class="field"><label for="project-publish">发布命令（可选）</label><input id="project-publish" name="publish_command" placeholder="例如：./scripts/deploy-staging.sh"></div>
     <label class="checkbox"><input type="checkbox" name="auto_apply" value="true"> 审查和验证通过后自动提交到隔离分支（不会推送到远程）</label>
+    <label class="checkbox"><input type="checkbox" name="auto_publish" value="true"> 交付阶段自动执行发布命令</label>
     <div class="form-actions"><button class="btn" type="button" data-action="close-modal">取消</button><button class="btn btn-primary" type="submit">创建项目</button></div>
+  </form></div>`);
+}
+function showProjectSettingsModal() {
+  const project = state.activeProject;
+  if (!project) return;
+  showModal(`<div class="modal-head"><div><h2>项目设置</h2></div><button class="modal-close" data-action="close-modal">×</button></div><div class="modal-body"><form class="form" data-form="project-settings" data-id="${project.id}">
+    <div class="field"><label for="settings-name">项目名称</label><input id="settings-name" name="name" value="${esc(project.name)}" required maxlength="80"></div>
+    <div class="field"><label for="settings-repo">仓库路径</label><input id="settings-repo" name="repo_path" value="${esc(project.repo_path)}" required><span class="hint">修改前请确认路径仍在仓库根目录内。</span></div>
+    <div class="grid grid-2"><div class="field"><label for="settings-branch">默认分支</label><input id="settings-branch" name="default_branch" value="${esc(project.default_branch || 'main')}"></div><div class="field"><label for="settings-allowed">允许路径（逗号分隔）</label><input id="settings-allowed" name="allowed_paths" value="${esc((project.allowed_paths || ['.']).join(', '))}"></div></div>
+    <div class="field"><label for="settings-verify">验证命令</label><input id="settings-verify" name="verify_command" value="${esc(project.verify_command || '')}" placeholder="例如：pytest -q"><span class="hint">留空则跳过验证。</span></div>
+    <div class="field"><label for="settings-publish">发布命令（可选）</label><input id="settings-publish" name="publish_command" value="${esc(project.publish_command || '')}" placeholder="例如：./scripts/deploy-staging.sh"></div>
+    <label class="checkbox"><input type="checkbox" name="auto_apply" value="true" ${project.auto_apply ? 'checked' : ''}> 审查和验证通过后自动提交到隔离分支</label>
+    <label class="checkbox"><input type="checkbox" name="auto_publish" value="true" ${project.auto_publish ? 'checked' : ''}> 交付阶段自动执行发布命令</label>
+    <div class="notice warn" style="margin-top:12px">修改验证命令或允许路径会影响后续运行；已经开始的运行仍使用启动时的方案与配置。</div>
+    <div class="form-actions"><button class="btn" type="button" data-action="close-modal">取消</button><button class="btn btn-primary" type="submit">保存设置</button></div>
   </form></div>`);
 }
 function showTokenModal(force = false) {
@@ -504,7 +534,7 @@ async function submitDemo(form) {
 
 async function submitProject(form) {
   const values = Object.fromEntries(new FormData(form).entries());
-  const payload = { name: values.name, repo_path: values.repo_path, default_branch: values.default_branch || 'main', verify_command: values.verify_command || '', publish_command: values.publish_command || '', allowed_paths: (values.allowed_paths || '.').split(',').map((item) => item.trim()).filter(Boolean), auto_apply: values.auto_apply === 'true' };
+  const payload = { name: values.name, repo_path: values.repo_path, default_branch: values.default_branch || 'main', verify_command: values.verify_command || '', publish_command: values.publish_command || '', allowed_paths: (values.allowed_paths || '.').split(',').map((item) => item.trim()).filter(Boolean), auto_apply: values.auto_apply === 'true', auto_publish: values.auto_publish === 'true' };
   try {
     const project = await api('/projects', { method: 'POST', body: JSON.stringify(payload) });
     closeModal();
@@ -514,6 +544,29 @@ async function submitProject(form) {
     await route();
   } catch (error) { toast(error.message, 'error'); }
 }
+async function submitProjectSettings(form) {
+  const id = form.dataset.id;
+  const values = Object.fromEntries(new FormData(form).entries());
+  const payload = {
+    name: values.name,
+    repo_path: values.repo_path,
+    default_branch: values.default_branch || 'main',
+    verify_command: values.verify_command || '',
+    publish_command: values.publish_command || '',
+    allowed_paths: (values.allowed_paths || '.').split(',').map((item) => item.trim()).filter(Boolean),
+    auto_apply: values.auto_apply === 'true',
+    auto_publish: values.auto_publish === 'true',
+  };
+  try {
+    const project = await api(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+    closeModal();
+    toast('项目设置已保存', 'success');
+    state.projects = state.projects.map((item) => (item.id === project.id ? project : item));
+    state.activeProject = project;
+    await loadProject(project.id);
+  } catch (error) { toast(error.message, 'error'); }
+}
+
 async function submitRequirement(form) {
   const values = Object.fromEntries(new FormData(form).entries());
   try {
@@ -598,6 +651,15 @@ async function feedbackKnowledge(id) {
   } catch (error) { toast(error.message, 'error'); }
 }
 
+async function reviewKnowledge(id, decision) {
+  if (decision === 'reject' && !window.confirm('确认驳回这条知识？驳回后不会注入后续运行。')) return;
+  try {
+    await api(`/knowledge/${id}/review`, { method: 'POST', body: JSON.stringify({ decision }) });
+    toast(decision === 'approve' ? '已批准入库' : '已驳回', 'success');
+    await loadKnowledge();
+  } catch (error) { toast(error.message, 'error'); }
+}
+
 async function route() {
   state.activeProject = null;
   state.activeRun = null;
@@ -614,6 +676,7 @@ function handleClick(event) {
   const action = actionNode.dataset.action;
   if (action === 'close-modal') { closeModal(); return; }
   if (action === 'new-project') { showProjectModal(); return; }
+  if (action === 'project-settings') { showProjectSettingsModal(); return; }
   if (action === 'start-demo') { showDemoModal(); return; }
   if (action === 'show-token') { showTokenModal(true); return; }
   if (action === 'toggle-sidebar') { document.body.classList.toggle('sidebar-open'); return; }
@@ -621,6 +684,8 @@ function handleClick(event) {
   if (action === 'set-tab') { state.runTab = actionNode.dataset.tab || 'overview'; if (state.activeRun) renderRunView(); return; }
   if (action === 'download-patch') { downloadPatch(actionNode.dataset.id); return; }
   if (action === 'feedback') { feedbackKnowledge(actionNode.dataset.id); return; }
+  if (action === 'approve-knowledge') { reviewKnowledge(actionNode.dataset.id, 'approve'); return; }
+  if (action === 'reject-knowledge') { reviewKnowledge(actionNode.dataset.id, 'reject'); return; }
   if (['approve-plan', 'reject-plan', 'override-feasibility', 'rework', 'cancel-run', 'promote', 'export-obsidian'].includes(action)) {
     runAction(action, actionNode.dataset.id);
   }
@@ -633,6 +698,7 @@ async function handleSubmit(event) {
   event.preventDefault();
   if (kind === 'demo') submitDemo(form);
   if (kind === 'project') submitProject(form);
+  if (kind === 'project-settings') submitProjectSettings(form);
   if (kind === 'requirement') submitRequirement(form);
   if (kind === 'clarify') submitClarify(form);
   if (kind === 'token') {

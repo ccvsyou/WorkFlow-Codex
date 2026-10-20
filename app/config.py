@@ -56,6 +56,9 @@ class Settings:
     llm_model: str = "deepseek-chat"
     llm_temperature: float = 0.2
     llm_timeout: int = 180
+    llm_input_price_per_mtok: float = 0.0
+    llm_output_price_per_mtok: float = 0.0
+    cost_currency: str = "CNY"
 
     feasibility_threshold: int = 60
     worker_enabled: bool = True
@@ -94,7 +97,7 @@ class Settings:
             self.obsidian_vault_path.mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         provider = os.getenv("LLM_PROVIDER", "mock").strip().lower()
         api_key = os.getenv("LLM_API_KEY", "").strip()
         obsidian = _path("OBSIDIAN_VAULT_PATH")
@@ -114,6 +117,9 @@ class Settings:
             llm_model=os.getenv("LLM_MODEL", "deepseek-chat").strip() or "deepseek-chat",
             llm_temperature=_float("LLM_TEMPERATURE", 0.2),
             llm_timeout=_int("LLM_TIMEOUT", 180),
+            llm_input_price_per_mtok=_float("LLM_INPUT_PRICE_PER_MTOK", 0.0),
+            llm_output_price_per_mtok=_float("LLM_OUTPUT_PRICE_PER_MTOK", 0.0),
+            cost_currency=os.getenv("COST_CURRENCY", "CNY").strip() or "CNY",
             feasibility_threshold=_int("FEASIBILITY_THRESHOLD", 60),
             worker_enabled=_bool("WORKER_ENABLED", True),
             worker_poll_interval=max(0.1, _float("WORKER_POLL_INTERVAL", 1.0)),

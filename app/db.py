@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Sequence
+from typing import Any
 
 from .utils import now_iso
 
@@ -39,110 +40,118 @@ def connect() -> Iterator[sqlite3.Connection]:
 
 
 def init_db() -> None:
-    with _init_lock:
-        with connect() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS projects (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    repo_path TEXT NOT NULL,
-                    default_branch TEXT NOT NULL DEFAULT 'main',
-                    verify_command TEXT NOT NULL DEFAULT '',
-                    publish_command TEXT NOT NULL DEFAULT '',
-                    allowed_paths_json TEXT NOT NULL DEFAULT '["."]',
-                    auto_apply INTEGER NOT NULL DEFAULT 0,
-                    auto_publish INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
+    with _init_lock, connect() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                repo_path TEXT NOT NULL,
+                default_branch TEXT NOT NULL DEFAULT 'main',
+                verify_command TEXT NOT NULL DEFAULT '',
+                publish_command TEXT NOT NULL DEFAULT '',
+                allowed_paths_json TEXT NOT NULL DEFAULT '["."]',
+                auto_apply INTEGER NOT NULL DEFAULT 0,
+                auto_publish INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
 
-                CREATE TABLE IF NOT EXISTS requirements (
-                    id TEXT PRIMARY KEY,
-                    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                    title TEXT NOT NULL,
-                    raw_input TEXT NOT NULL,
-                    spec_json TEXT NOT NULL DEFAULT '{}',
-                    status TEXT NOT NULL DEFAULT 'open',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
+            CREATE TABLE IF NOT EXISTS requirements (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                raw_input TEXT NOT NULL,
+                spec_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'open',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
 
-                CREATE TABLE IF NOT EXISTS runs (
-                    id TEXT PRIMARY KEY,
-                    requirement_id TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
-                    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                    status TEXT NOT NULL DEFAULT 'queued',
-                    stage TEXT NOT NULL DEFAULT 'intake',
-                    clarify_json TEXT NOT NULL DEFAULT '{}',
-                    answers_json TEXT NOT NULL DEFAULT '{}',
-                    clarify_round INTEGER NOT NULL DEFAULT 0,
-                    feasibility_json TEXT NOT NULL DEFAULT '{}',
-                    context_json TEXT NOT NULL DEFAULT '{}',
-                    plan_json TEXT NOT NULL DEFAULT '{}',
-                    plan_approved INTEGER NOT NULL DEFAULT 0,
-                    code_json TEXT NOT NULL DEFAULT '{}',
-                    review_json TEXT NOT NULL DEFAULT '{}',
-                    verify_json TEXT NOT NULL DEFAULT '{}',
-                    deliver_json TEXT NOT NULL DEFAULT '{}',
-                    distill_json TEXT NOT NULL DEFAULT '{}',
-                    patch_text TEXT NOT NULL DEFAULT '',
-                    error TEXT NOT NULL DEFAULT '',
-                    branch_name TEXT NOT NULL DEFAULT '',
-                    worktree_path TEXT NOT NULL DEFAULT '',
-                    llm_provider TEXT NOT NULL DEFAULT '',
-                    llm_model TEXT NOT NULL DEFAULT '',
-                    tokens_in INTEGER NOT NULL DEFAULT 0,
-                    tokens_out INTEGER NOT NULL DEFAULT 0,
-                    rework_note TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    started_at TEXT NOT NULL DEFAULT '',
-                    finished_at TEXT NOT NULL DEFAULT ''
-                );
+            CREATE TABLE IF NOT EXISTS runs (
+                id TEXT PRIMARY KEY,
+                requirement_id TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+                project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                status TEXT NOT NULL DEFAULT 'queued',
+                stage TEXT NOT NULL DEFAULT 'intake',
+                clarify_json TEXT NOT NULL DEFAULT '{}',
+                answers_json TEXT NOT NULL DEFAULT '{}',
+                clarify_round INTEGER NOT NULL DEFAULT 0,
+                feasibility_json TEXT NOT NULL DEFAULT '{}',
+                context_json TEXT NOT NULL DEFAULT '{}',
+                plan_json TEXT NOT NULL DEFAULT '{}',
+                plan_approved INTEGER NOT NULL DEFAULT 0,
+                code_json TEXT NOT NULL DEFAULT '{}',
+                review_json TEXT NOT NULL DEFAULT '{}',
+                verify_json TEXT NOT NULL DEFAULT '{}',
+                deliver_json TEXT NOT NULL DEFAULT '{}',
+                distill_json TEXT NOT NULL DEFAULT '{}',
+                patch_text TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                branch_name TEXT NOT NULL DEFAULT '',
+                worktree_path TEXT NOT NULL DEFAULT '',
+                llm_provider TEXT NOT NULL DEFAULT '',
+                llm_model TEXT NOT NULL DEFAULT '',
+                tokens_in INTEGER NOT NULL DEFAULT 0,
+                tokens_out INTEGER NOT NULL DEFAULT 0,
+                rework_note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                started_at TEXT NOT NULL DEFAULT '',
+                finished_at TEXT NOT NULL DEFAULT ''
+            );
 
-                CREATE TABLE IF NOT EXISTS run_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-                    type TEXT NOT NULL,
-                    stage TEXT NOT NULL,
-                    message TEXT NOT NULL,
-                    payload_json TEXT NOT NULL DEFAULT '{}',
-                    created_at TEXT NOT NULL
-                );
+            CREATE TABLE IF NOT EXISTS run_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                type TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                message TEXT NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
 
-                CREATE TABLE IF NOT EXISTS knowledge (
-                    id TEXT PRIMARY KEY,
-                    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                    kind TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    tags_json TEXT NOT NULL DEFAULT '[]',
-                    confidence REAL NOT NULL DEFAULT 0.5,
-                    ttl_days INTEGER NOT NULL DEFAULT 90,
-                    expires_at TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'accepted',
-                    source_run_id TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    last_used_at TEXT NOT NULL DEFAULT ''
-                );
+            CREATE TABLE IF NOT EXISTS knowledge (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                confidence REAL NOT NULL DEFAULT 0.5,
+                ttl_days INTEGER NOT NULL DEFAULT 90,
+                expires_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'accepted',
+                source_run_id TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_used_at TEXT NOT NULL DEFAULT ''
+            );
 
-                CREATE TABLE IF NOT EXISTS knowledge_feedback (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    knowledge_id TEXT NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
-                    run_id TEXT NOT NULL DEFAULT '',
-                    reason TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
+            CREATE TABLE IF NOT EXISTS knowledge_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                knowledge_id TEXT NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
+                run_id TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
 
-                CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, created_at);
-                CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id, created_at);
-                CREATE INDEX IF NOT EXISTS idx_events_run ON run_events(run_id, id);
-                CREATE INDEX IF NOT EXISTS idx_knowledge_project ON knowledge(project_id, status, expires_at);
-                CREATE INDEX IF NOT EXISTS idx_requirements_project ON requirements(project_id, created_at);
-                """
-            )
+            CREATE TABLE IF NOT EXISTS knowledge_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                knowledge_id TEXT NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
+                decision TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_events_run ON run_events(run_id, id);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_project ON knowledge(project_id, status, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_reviews_item ON knowledge_reviews(knowledge_id, id);
+            CREATE INDEX IF NOT EXISTS idx_requirements_project ON requirements(project_id, created_at);
+            """
+        )
 
 
 def execute(sql: str, params: Sequence[Any] = ()) -> int:

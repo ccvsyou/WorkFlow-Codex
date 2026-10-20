@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from .. import db
 from ..schemas import KnowledgeCandidate
@@ -68,7 +69,7 @@ def create_knowledge(
 ) -> dict[str, Any]:
     kid = knowledge_id or new_id("kb_")
     now = now_iso()
-    expires = (datetime.now(timezone.utc) + timedelta(days=max(1, ttl_days))).replace(microsecond=0).isoformat()
+    expires = (datetime.now(UTC) + timedelta(days=max(1, ttl_days))).replace(microsecond=0).isoformat()
     db.execute(
         """
         INSERT INTO knowledge
@@ -140,6 +141,29 @@ def add_feedback(knowledge_id: str, reason: str, run_id: str = "") -> dict[str, 
     db.execute(
         "UPDATE knowledge SET confidence = ?, status = ?, updated_at = ? WHERE id = ?",
         (confidence, status, now_iso(), knowledge_id),
+    )
+    return get(knowledge_id)
+
+
+def review(knowledge_id: str, decision: str, note: str = "") -> dict[str, Any] | None:
+    """Human review for pending knowledge. Approve promotes it, reject removes it from injection."""
+    item = get(knowledge_id)
+    if not item:
+        return None
+    if decision == "approve":
+        status = "accepted"
+        confidence = max(0.75, float(item["confidence"]))
+    else:
+        status = "rejected"
+        confidence = float(item["confidence"])
+    now = now_iso()
+    db.execute(
+        "UPDATE knowledge SET status = ?, confidence = ?, updated_at = ? WHERE id = ?",
+        (status, confidence, now, knowledge_id),
+    )
+    db.execute(
+        "INSERT INTO knowledge_reviews (knowledge_id, decision, note, created_at) VALUES (?, ?, ?, ?)",
+        (knowledge_id, decision, note[:2000], now),
     )
     return get(knowledge_id)
 
