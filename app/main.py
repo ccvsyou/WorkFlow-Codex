@@ -14,6 +14,7 @@ from . import db
 from .config import Settings, get_settings
 from .schemas import (
     AnswerPayload,
+    DemoOnboardingRequest,
     FeasibilityOverride,
     KnowledgeCreate,
     KnowledgeFeedback,
@@ -24,7 +25,7 @@ from .schemas import (
     ReworkRequest,
 )
 from .serializers import event_out, project_out, requirement_out, run_out
-from .services import gitops, knowledge, obsidian
+from .services import gitops, knowledge, obsidian, onboarding
 from .services.engine import STAGE_LABELS, STAGES, TERMINAL, Worker, WorkflowEngine
 from .utils import dumps, new_id, now_iso
 
@@ -111,7 +112,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
         finally:
             await worker.stop()
 
-    app = FastAPI(title=app_settings.app_name, version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title=app_settings.app_name, version="0.2.0", lifespan=lifespan)
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -126,7 +127,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
 
     @app.get("/api/health", include_in_schema=False)
     def health() -> dict[str, Any]:
-        return {"ok": True, "app": app_settings.app_name, "version": "0.1.0"}
+        return {"ok": True, "app": app_settings.app_name, "version": "0.2.0"}
 
     @app.get("/api/config", include_in_schema=False)
     def config() -> dict[str, Any]:
@@ -141,7 +142,7 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             "obsidian_enabled": bool(app_settings.obsidian_vault_path),
             "auth_required": bool(app_settings.api_token),
             "stages": [{"id": stage, "label": STAGE_LABELS.get(stage, stage)} for stage in STAGES],
-            "version": "0.1.0",
+            "version": "0.2.0",
         }
 
     # ---------- projects ----------
@@ -181,6 +182,81 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             ),
         )
         return project_out(_project_or_404(pid))
+
+    @app.post("/api/onboarding/demo", dependencies=auth, status_code=201)
+    def create_demo_onboarding(payload: DemoOnboardingRequest | None = None) -> dict[str, Any]:
+        start_run = True if payload is None else payload.start_run
+        try:
+            repo_path = onboarding.ensure_demo_repo(app_settings)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"创建示例仓库失败：{exc}") from exc
+
+        now = now_iso()
+        existing = db.query_one("SELECT * FROM projects WHERE repo_path = ?", (str(repo_path),))
+        if existing:
+            project = project_out(existing)
+        else:
+            pid = new_id("prj_")
+            db.execute(
+                """
+                INSERT INTO projects
+                (id, name, repo_path, default_branch, verify_command, publish_command,
+                 allowed_paths_json, auto_apply, auto_publish, created_at, updated_at)
+                VALUES (?, ?, ?, 'main', ?, '', ?, 1, 0, ?, ?)
+                """,
+                (
+                    pid,
+                    onboarding.DEMO_REPO_TITLE,
+                    str(repo_path),
+                    "python -c \"print('ok')\"",
+                    dumps(["."]),
+                    now,
+                    now,
+                ),
+            )
+            project = project_out(_project_or_404(pid))
+
+        rid = new_id("req_")
+        db.execute(
+            "INSERT INTO requirements (id, project_id, title, raw_input, spec_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, '{}', 'open', ?, ?)",
+            (
+                rid,
+                project["id"],
+                onboarding.DEMO_REQUIREMENT_TITLE,
+                onboarding.DEMO_REQUIREMENT_INPUT,
+                now,
+                now,
+            ),
+        )
+        result: dict[str, Any] = {
+            "project": project,
+            "requirement": _requirement_or_404(rid),
+            "run": None,
+        }
+        if start_run:
+            run_id = new_id("run_")
+            db.execute(
+                """
+                INSERT INTO runs
+                (id, requirement_id, project_id, status, stage, llm_provider, llm_model, created_at, updated_at)
+                VALUES (?, ?, ?, 'queued', 'intake', ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    rid,
+                    project["id"],
+                    "mock" if app_settings.is_mock else app_settings.llm_provider,
+                    "mock" if app_settings.is_mock else app_settings.llm_model,
+                    now,
+                    now,
+                ),
+            )
+            db.execute(
+                "INSERT INTO run_events (run_id, type, stage, message, payload_json, created_at) VALUES (?, 'created', 'intake', '示例需求已提交，等待 Worker', '{}', ?)",
+                (run_id, now),
+            )
+            result["run"] = _full_run_payload(run_id)
+        return result
 
     @app.get("/api/projects/{project_id}", dependencies=auth)
     def get_project(project_id: str) -> dict[str, Any]:

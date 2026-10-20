@@ -157,7 +157,7 @@ function renderSidebar(active = 'dashboard') {
 }
 
 function onboardingCard() {
-  return `<div class="onboarding"><div class="orb">⌁</div><h2>先接入一个代码仓库</h2><p>FlowCodex 只会操作 仓库根目录下的 Git 仓库。每个运行都会创建独立的隔离工作区，不会直接污染主工作区。</p><button class="btn btn-primary" data-action="new-project">创建第一个项目</button></div>`;
+  return `<div class="onboarding"><div class="orb">⌁</div><h2>先用示例仓库跑通一条需求</h2><p>自动创建一个隔离的示例 Git 仓库、示例项目和一条需求。不会影响你的业务仓库。</p><div class="onboarding-actions"><button class="btn btn-primary" data-action="start-demo">开始 10 分钟体验</button><button class="btn" data-action="new-project">接入自己的仓库</button></div></div>`;
 }
 function renderProjectCard(project) {
   return `<a class="card card-subtle card-pad" href="#/project/${project.id}" style="display:block"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><div style="display:flex;align-items:center;gap:10px;min-width:0"><span class="project-avatar">${esc((project.name || 'P').slice(0, 1).toUpperCase())}</span><strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(project.name)}</strong></div><span class="tag">${project.auto_apply ? '自动提交' : '隔离待提交'}</span></div><div class="muted small mono" style="margin-top:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(project.repo_path)}</div></a>`;
@@ -178,7 +178,7 @@ function renderDashboard() {
   const recent = state.dashboard?.recent_runs || [];
   const hasProjects = state.projects.length > 0;
   $('#view').innerHTML = `
-    <div class="page-head"><div><h1>把一条需求，推到可验证交付。</h1><p class="subtitle">需求访谈 → 可行性门禁 → 技术方案 → 隔离编码 → 代码审查 → 验证 → 交付 → 知识蒸馏。人只在真正需要判断的节点介入。</p></div><div class="head-actions"><button class="btn btn-primary" data-action="new-project">+ 新建项目</button></div></div>
+    <div class="page-head"><div><h1>把一条需求，推到可验证交付。</h1><p class="subtitle">需求访谈 → 可行性门禁 → 技术方案 → 隔离编码 → 代码审查 → 验证 → 交付 → 知识蒸馏。人只在真正需要判断的节点介入。</p></div><div class="head-actions"><button class="btn" data-action="start-demo">体验示例</button><button class="btn btn-primary" data-action="new-project">+ 新建项目</button></div></div>
     <div class="grid grid-4" style="margin-bottom:22px">
       <div class="card metric accent"><div class="metric-label">进行中</div><div class="metric-value">${counts.active || 0}</div><div class="metric-foot">排队 / 运行 / 等待决策</div></div>
       <div class="card metric"><div class="metric-label">待人工决策</div><div class="metric-value">${counts.waiting || 0}</div><div class="metric-foot">需求补充或方案确认</div></div>
@@ -451,6 +451,21 @@ function renderTimeline(events) {
   return `<div class="timeline">${events.map((event) => `<div class="timeline-item ${esc(event.type || '')}"><div class="event-meta">${esc(fmtDate(event.created_at))} · ${esc(STAGE_LABEL[event.stage] || event.stage)}</div><div class="event-msg">${esc(event.message)}</div></div>`).join('')}</div>`;
 }
 
+function showDemoModal() {
+  showModal(`<div class="modal-head"><div><h2>10 分钟体验 FlowCodex</h2></div><button class="modal-close" data-action="close-modal">×</button></div><div class="modal-body">
+    <div class="list-stack">
+      <div class="list-item"><div class="item-title">1. 自动准备示例仓库</div><div class="item-body">在服务器仓库根目录创建一个独立的 Git 示例仓库，不会触碰你的业务仓库。</div></div>
+      <div class="list-item"><div class="item-title">2. 自动提交示例需求</div><div class="item-body">创建示例项目和一条需求，进入需求访谈。</div></div>
+      <div class="list-item"><div class="item-title">3. 走完整条流水线</div><div class="item-body">你只需要回答必要问题、批准方案，然后查看编码、审查、验证、交付和知识沉淀。</div></div>
+    </div>
+    <div class="notice" style="margin-top:16px">示例项目会自动提交到隔离分支。你可以随时删除示例仓库，不影响其他项目。</div>
+    <form class="form" data-form="demo" style="margin-top:16px">
+      <div class="form-actions"><button class="btn" type="button" data-action="close-modal">取消</button><button class="btn btn-primary" type="submit">创建示例并启动</button></div>
+    </form>
+  </div>`);
+}
+
+
 function showProjectModal() {
   showModal(`<div class="modal-head"><div><h2>接入一个 Git 仓库</h2></div><button class="modal-close" data-action="close-modal">×</button></div><div class="modal-body"><form class="form" data-form="project">
     <div class="field"><label for="project-name">项目名称</label><input id="project-name" name="name" placeholder="例如：内容平台" required></div>
@@ -466,6 +481,26 @@ function showTokenModal(force = false) {
   if (!force && state.config && !state.config.auth_required) { toast('当前实例未启用访问令牌。'); return; }
   showModal(`<div class="modal-head"><div><h2>访问令牌</h2></div><button class="modal-close" data-action="close-modal">×</button></div><div class="modal-body"><form class="form" data-form="token"><div class="field"><label for="api-token">访问令牌</label><input id="api-token" name="token" type="password" placeholder="请输入访问令牌" value="${esc(state.token)}" autocomplete="off"><span class="hint">保存在浏览器本地存储中，仅发送到当前 FlowCodex 实例。</span></div><div class="form-actions"><button class="btn btn-primary" type="submit">保存并连接</button></div></form></div>`);
 }
+
+async function submitDemo(form) {
+  const button = form.querySelector('button[type="submit"]');
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '正在创建示例项目…';
+  try {
+    const result = await api('/onboarding/demo', { method: 'POST', body: JSON.stringify({ start_run: true }) });
+    closeModal();
+    toast('示例项目已创建，示例需求已提交', 'success');
+    const runId = result.run?.run?.id;
+    if (runId) location.hash = `#/run/${runId}`;
+    await route();
+  } catch (error) {
+    toast(error.message, 'error');
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
 
 async function submitProject(form) {
   const values = Object.fromEntries(new FormData(form).entries());
@@ -579,6 +614,7 @@ function handleClick(event) {
   const action = actionNode.dataset.action;
   if (action === 'close-modal') { closeModal(); return; }
   if (action === 'new-project') { showProjectModal(); return; }
+  if (action === 'start-demo') { showDemoModal(); return; }
   if (action === 'show-token') { showTokenModal(true); return; }
   if (action === 'toggle-sidebar') { document.body.classList.toggle('sidebar-open'); return; }
   if (action === 'refresh') { route(); return; }
@@ -595,6 +631,7 @@ async function handleSubmit(event) {
   const kind = form.dataset.form;
   if (!kind) return;
   event.preventDefault();
+  if (kind === 'demo') submitDemo(form);
   if (kind === 'project') submitProject(form);
   if (kind === 'requirement') submitRequirement(form);
   if (kind === 'clarify') submitClarify(form);

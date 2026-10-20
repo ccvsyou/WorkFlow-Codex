@@ -69,13 +69,17 @@ $env:REPOS_ROOT="./repos"
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-打开 <http://127.0.0.1:8000>，创建项目：
+打开 <http://127.0.0.1:8000>，有两种方式开始：
+
+**方式一：一键体验（不需要准备仓库）**
+
+点击工作台的“开始 10 分钟体验”。系统会自动创建隔离的示例 Git 仓库、示例项目和一条示例需求，你只需要回答澄清问题并批准方案。
+
+**方式二：接入自己的仓库**
 
 - 仓库路径：`demo` 或绝对路径 `.../repos/demo`
 - 验证命令：`python -c "print('ok')"`
 - 勾选“自动提交到隔离分支”（本地演示可选）
-
-然后提交一条需求，按管理端提示完成访谈回答和方案批准。
 
 也可以先启动服务，再运行演示脚本自动创建 demo 仓库、项目和一条需求：
 
@@ -142,3 +146,4 @@ sudo bash deploy/install-tencent.sh
 - [docs/SOURCE_NOTES.md](docs/SOURCE_NOTES.md) — 原文要点与本实现的映射
 - [deploy/tencent-lighthouse.md](deploy/tencent-lighthouse.md) — 轻量服务器部署手册
 - [docs/COMMERCIAL_READINESS.md](docs/COMMERCIAL_READINESS.md) — 商业化就绪评估、阻断项与 30/60/90 天路线图
+- [docs/PRODUCT_ASSESSMENT.md](docs/PRODUCT_ASSESSMENT.md) — 产品视角评估、激活漏斗、关键假设与优先级

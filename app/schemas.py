@@ -49,6 +49,10 @@ class RequirementCreate(BaseModel):
     _strip_non_blank = field_validator("title", "raw_input")(_non_blank)
 
 
+class DemoOnboardingRequest(BaseModel):
+    start_run: bool = True
+
+
 class AnswerPayload(BaseModel):
     answers: dict[str, str]
 
